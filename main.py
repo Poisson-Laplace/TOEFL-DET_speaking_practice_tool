@@ -29,21 +29,23 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(980, 700)
 
         # Force pure dark background on QMainWindow
-        self.setStyleSheet("background-color: #0b0f19;")
+        self.setStyleSheet("background-color: #f4f7fb;")
 
         # Central Stacked Widget
         self.stack = QStackedWidget(self)
-        self.stack.setStyleSheet("background-color: #0b0f19;")
+        self.stack.setStyleSheet("background-color: #f4f7fb;")
         self.setCentralWidget(self.stack)
 
         # Screen 1: Selector Screen (TOEFL vs DET)
         self.selector_screen = SelectorScreen(self)
         self.selector_screen.exam_selected.connect(self._on_exam_selected)
+        self.selector_screen.language_changed.connect(self._on_language_changed)
         self.stack.addWidget(self.selector_screen)
 
         # Screen 2: Studio Screen (Recording & Word-Level STT)
         self.studio_screen = StudioScreen(self)
         self.studio_screen.back_to_selector.connect(self._on_back_to_selector)
+        self.studio_screen.language_changed.connect(self._on_language_changed)
         self.stack.addWidget(self.studio_screen)
 
         # Start on Selector Screen
@@ -55,6 +57,11 @@ class MainWindow(QMainWindow):
 
     def _on_back_to_selector(self):
         self.stack.setCurrentIndex(0)
+
+    def _on_language_changed(self, language: str):
+        """Keep both language switches synchronized without signal loops."""
+        self.selector_screen.set_language_silent(language)
+        self.studio_screen.set_language(language, emit=False)
 
     def closeEvent(self, event):
         # Stop any ongoing recording or audio playback gracefully
@@ -75,17 +82,17 @@ def main():
 
     # Set dark palette for native dialogs
     palette = QPalette()
-    palette.setColor(QPalette.Window, QColor("#0b0f19"))
-    palette.setColor(QPalette.WindowText, QColor("#f1f5f9"))
-    palette.setColor(QPalette.Base, QColor("#111827"))
-    palette.setColor(QPalette.AlternateBase, QColor("#1e293b"))
-    palette.setColor(QPalette.ToolTipBase, QColor("#f8fafc"))
-    palette.setColor(QPalette.ToolTipText, QColor("#0f172a"))
-    palette.setColor(QPalette.Text, QColor("#f1f5f9"))
-    palette.setColor(QPalette.Button, QColor("#1e293b"))
-    palette.setColor(QPalette.ButtonText, QColor("#f8fafc"))
+    palette.setColor(QPalette.Window, QColor("#f4f7fb"))
+    palette.setColor(QPalette.WindowText, QColor("#172033"))
+    palette.setColor(QPalette.Base, QColor("#ffffff"))
+    palette.setColor(QPalette.AlternateBase, QColor("#f8fafc"))
+    palette.setColor(QPalette.ToolTipBase, QColor("#172033"))
+    palette.setColor(QPalette.ToolTipText, QColor("#ffffff"))
+    palette.setColor(QPalette.Text, QColor("#172033"))
+    palette.setColor(QPalette.Button, QColor("#ffffff"))
+    palette.setColor(QPalette.ButtonText, QColor("#24324a"))
     palette.setColor(QPalette.BrightText, QColor("#ef4444"))
-    palette.setColor(QPalette.Highlight, QColor("#2563eb"))
+    palette.setColor(QPalette.Highlight, QColor("#2457a6"))
     palette.setColor(QPalette.HighlightedText, QColor("#ffffff"))
     app.setPalette(palette)
 

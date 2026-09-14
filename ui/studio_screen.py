@@ -19,6 +19,93 @@ from prompts import PROMPTS
 from audio_recorder import AudioRecorder
 from stt_engine import TranscribeWorker
 from tts_worker import TTSWorker
+from ui.language_switch import LanguageSwitch
+
+
+UI_TEXT = {
+    "tr": {
+        "back": "← Sınav seçimi",
+        "workspace": "Konuşma çalışması",
+        "task": "Görev türü",
+        "language": "Arayüz dili",
+        "next": "Yeni soru",
+        "play": "▶ Oynat",
+        "pause": "❚❚ Duraklat",
+        "timeline": "Kelime zamanları",
+        "karaoke": "Etkileşimli metin",
+        "copy": "Metni kopyala",
+        "export_txt": "TXT indir",
+        "export_json": "JSON kaydet",
+        "words": "Kelime",
+        "speed": "Hız",
+        "duration": "Süre",
+        "ready": "Hazır",
+        "start_listen": "▶ Dinle ve başla",
+        "start_record": "● Kayda başla",
+        "ready_listen": "Cümleyi dinlemek için başlayabilirsin.",
+        "ready_record": "Hazır olduğunda kaydı başlat.",
+        "listening": "Cümle oynatılıyor",
+        "listening_detail": "Dikkatle dinle; bittiğinde mikrofon otomatik açılacak.",
+        "recording": "Kayıt devam ediyor",
+        "stop": "■ Kaydı bitir",
+        "remaining": "Kayıt {seconds} saniye sonra otomatik bitecek.",
+        "processing": "Kayıt hazırlanıyor",
+        "processing_detail": "Ses dosyası işleniyor…",
+        "completed": "Tamamlandı",
+        "analyzing": "Konuşma analiz ediliyor…",
+        "analyzing_detail": "Kelimeler ve zaman damgaları çıkarılıyor.",
+        "transcript_ready": "Transkripsiyon hazır",
+        "detected": "{count} kelime bulundu. Bir kelimeye tıklayarak o noktadan dinleyebilirsin.",
+        "empty": "Henüz transkripsiyon yok. Bir yanıt kaydettiğinde burada görünecek.",
+        "instruction": "YÖNERGE",
+    },
+    "en": {
+        "back": "← Exam selection",
+        "workspace": "Speaking practice",
+        "task": "Task type",
+        "language": "Interface language",
+        "next": "New prompt",
+        "play": "▶ Play",
+        "pause": "❚❚ Pause",
+        "timeline": "Word timing",
+        "karaoke": "Interactive transcript",
+        "copy": "Copy text",
+        "export_txt": "Download TXT",
+        "export_json": "Save JSON",
+        "words": "Words",
+        "speed": "Speed",
+        "duration": "Duration",
+        "ready": "Ready",
+        "start_listen": "▶ Listen and start",
+        "start_record": "● Start recording",
+        "ready_listen": "Start when you are ready to listen to the sentence.",
+        "ready_record": "Start recording when you are ready.",
+        "listening": "Playing the sentence",
+        "listening_detail": "Listen carefully; the microphone will open automatically when it ends.",
+        "recording": "Recording in progress",
+        "stop": "■ Finish recording",
+        "remaining": "Recording will stop automatically in {seconds} seconds.",
+        "processing": "Finishing recording",
+        "processing_detail": "Processing the audio file…",
+        "completed": "Completed",
+        "analyzing": "Analyzing your response…",
+        "analyzing_detail": "Extracting words and timestamps.",
+        "transcript_ready": "Transcript ready",
+        "detected": "Found {count} words. Click any word to play from that point.",
+        "empty": "No transcript yet. Your response will appear here after recording.",
+        "instruction": "INSTRUCTIONS",
+    },
+}
+
+TASK_NAMES_TR = {
+    "Listen & Repeat": "Dinle ve Tekrar Et",
+    "Take an Interview": "Mülakat",
+    "Speak About the Photo": "Fotoğraf Hakkında Konuş",
+    "Read, Then Speak": "Oku, Sonra Konuş",
+    "Interactive Speaking": "Etkileşimli Konuşma",
+    "Speaking Sample": "Konuşma Örneği",
+    "Free Topic": "Serbest Konu",
+}
 
 def format_seconds(seconds: float) -> str:
     """Format float seconds to MM:SS.ss"""
@@ -38,10 +125,12 @@ class StudioScreen(QWidget):
     Main studio for recording, audio playback, and word-level timestamp inspection.
     """
     back_to_selector = pyqtSignal()
+    language_changed = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setStyleSheet("background-color: #0b0f19;")
+        self.setStyleSheet("background-color: #f4f7fb;")
+        self.language = "tr"
         self.current_exam = "toefl"
         self.current_task_idx = 0
         self.current_prompt = ""
@@ -85,9 +174,9 @@ class StudioScreen(QWidget):
         self.badge_label.setText(f"[ {exam_info['badge']} ]")
         if exam_key == "toefl":
             self.badge_label.setStyleSheet("""
-                background-color: #1e3a8a;
-                color: #93c5fd;
-                border: 1px solid #2563eb;
+                background-color: #e8f0fc;
+                color: #2457a6;
+                border: 1px solid #b9cceb;
                 border-radius: 6px;
                 padding: 6px 14px;
                 font-size: 13px;
@@ -95,9 +184,9 @@ class StudioScreen(QWidget):
             """)
         elif exam_key == "det":
             self.badge_label.setStyleSheet("""
-                background-color: #064e3b;
-                color: #6ee7b7;
-                border: 1px solid #059669;
+                background-color: #e7f7f2;
+                color: #087f6b;
+                border: 1px solid #a9decf;
                 border-radius: 6px;
                 padding: 6px 14px;
                 font-size: 13px;
@@ -105,9 +194,9 @@ class StudioScreen(QWidget):
             """)
         else:
             self.badge_label.setStyleSheet("""
-                background-color: #4c1d95;
-                color: #c4b5fd;
-                border: 1px solid #7c3aed;
+                background-color: #f1ecfb;
+                color: #7047a8;
+                border: 1px solid #d4c4eb;
                 border-radius: 6px;
                 padding: 6px 14px;
                 font-size: 13px;
@@ -118,7 +207,7 @@ class StudioScreen(QWidget):
         self.task_combo.blockSignals(True)
         self.task_combo.clear()
         for task in exam_info["tasks"]:
-            self.task_combo.addItem(f"{task['type']} ({task['tag']})")
+            self.task_combo.addItem(self._task_display(task))
         self.task_combo.blockSignals(False)
 
         self.current_task_idx = 0
@@ -128,55 +217,69 @@ class StudioScreen(QWidget):
 
     def _init_ui(self):
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(28, 20, 28, 20)
-        main_layout.setSpacing(16)
+        main_layout.setContentsMargins(34, 22, 34, 24)
+        main_layout.setSpacing(13)
 
         # ---------------- TOP NAVIGATION BAR ----------------
         top_bar = QHBoxLayout()
         top_bar.setSpacing(12)
 
-        self.back_btn = QPushButton("← Sınav Seçimine Dön")
+        self.back_btn = QPushButton()
         self.back_btn.setCursor(Qt.PointingHandCursor)
         self.back_btn.setStyleSheet("""
             QPushButton {
-                background-color: #1e293b;
-                color: #e2e8f0;
-                border: 1px solid #334155;
+                background-color: transparent;
+                color: #526176;
+                border: 0;
                 padding: 8px 16px;
                 font-size: 13px;
                 border-radius: 8px;
             }
             QPushButton:hover {
-                background-color: #334155;
-                color: #ffffff;
+                background-color: #e9eef5;
+                color: #2457a6;
             }
         """)
         self.back_btn.clicked.connect(self._handle_back)
 
-        self.badge_label = QLabel("[ TOEFL 2026 ]")
-
-        self.task_combo = QComboBox()
-        self.task_combo.currentIndexChanged.connect(self._on_task_changed)
-        self.task_combo.setMinimumWidth(280)
-
-        self.next_prompt_btn = QPushButton("Sıradaki Cümle/Soru ↻")
-        self.next_prompt_btn.setCursor(Qt.PointingHandCursor)
-        self.next_prompt_btn.clicked.connect(self._load_new_prompt)
+        self.badge_label = QLabel("TOEFL 2026")
 
         top_bar.addWidget(self.back_btn)
         top_bar.addWidget(self.badge_label)
-        top_bar.addWidget(self.task_combo)
-        top_bar.addWidget(self.next_prompt_btn)
         top_bar.addStretch()
+        self.language_label = QLabel()
+        self.language_label.setStyleSheet("color:#68758a; font-size:12px; background:transparent;")
+        self.language_switch = LanguageSwitch()
+        self.language_switch.language_changed.connect(self.set_language)
+        top_bar.addWidget(self.language_label)
+        top_bar.addWidget(self.language_switch)
 
         main_layout.addLayout(top_bar)
+
+        workspace_bar = QHBoxLayout()
+        self.workspace_title = QLabel()
+        self.workspace_title.setStyleSheet("color:#172033; font-size:24px; font-weight:800; background:transparent;")
+        self.task_label = QLabel()
+        self.task_label.setStyleSheet("color:#68758a; font-size:12px; background:transparent;")
+        self.task_combo = QComboBox()
+        self.task_combo.currentIndexChanged.connect(self._on_task_changed)
+        self.task_combo.setMinimumWidth(300)
+        self.next_prompt_btn = QPushButton()
+        self.next_prompt_btn.setCursor(Qt.PointingHandCursor)
+        self.next_prompt_btn.clicked.connect(self._load_new_prompt)
+        workspace_bar.addWidget(self.workspace_title)
+        workspace_bar.addStretch()
+        workspace_bar.addWidget(self.task_label)
+        workspace_bar.addWidget(self.task_combo)
+        workspace_bar.addWidget(self.next_prompt_btn)
+        main_layout.addLayout(workspace_bar)
 
         # ---------------- PROMPT CARD ----------------
         self.prompt_card = QFrame()
         self.prompt_card.setStyleSheet("""
             QFrame {
-                background-color: #111b2e;
-                border: 1px solid #1e3a8a;
+                background-color: #ffffff;
+                border: 1px solid #dfe6ef;
                 border-radius: 12px;
                 padding: 16px 20px;
             }
@@ -184,12 +287,12 @@ class StudioScreen(QWidget):
         prompt_layout = QVBoxLayout(self.prompt_card)
         prompt_layout.setSpacing(8)
 
-        self.instruction_label = QLabel("YÖNERGE")
-        self.instruction_label.setStyleSheet("color: #60a5fa; font-size: 11px; font-weight: 700; letter-spacing: 0.5px;")
+        self.instruction_label = QLabel()
+        self.instruction_label.setStyleSheet("color: #2457a6; font-size: 11px; font-weight: 800; letter-spacing: 0.5px; background:transparent;")
 
         self.prompt_text_label = QLabel("Prompt metni buraya gelecek...")
         self.prompt_text_label.setWordWrap(True)
-        self.prompt_text_label.setStyleSheet("color: #f8fafc; font-size: 16px; font-weight: 600; line-height: 1.5;")
+        self.prompt_text_label.setStyleSheet("color: #172033; font-size: 16px; font-weight: 600; line-height: 1.5; background:transparent;")
         self.prompt_text_label.setAlignment(Qt.AlignCenter)
 
         prompt_layout.addWidget(self.instruction_label)
@@ -200,8 +303,8 @@ class StudioScreen(QWidget):
         control_card = QFrame()
         control_card.setStyleSheet("""
             QFrame {
-                background-color: #111827;
-                border: 1px solid #1e293b;
+                background-color: #ffffff;
+                border: 1px solid #dfe6ef;
                 border-radius: 12px;
                 padding: 16px 20px;
             }
@@ -214,10 +317,10 @@ class StudioScreen(QWidget):
         self.timer_label.setStyleSheet("""
             font-size: 42px;
             font-weight: 800;
-            color: #f8fafc;
+            color: #173f7a;
             font-family: 'Courier New', monospace;
-            background-color: #0b0f19;
-            border: 1px solid #1e293b;
+            background-color: #edf3fc;
+            border: 1px solid #cbd9ed;
             border-radius: 10px;
             padding: 4px 16px;
         """)
@@ -234,13 +337,14 @@ class StudioScreen(QWidget):
         # Status & Info
         status_layout = QVBoxLayout()
         status_layout.setSpacing(4)
-        self.status_title = QLabel("● Hazır")
-        self.status_title.setStyleSheet("color: #38bdf8; font-size: 15px; font-weight: 700;")
-        self.status_detail = QLabel("Butona tıklayarak hedef cümleyi dinle.")
-        self.status_detail.setStyleSheet("color: #94a3b8; font-size: 13px;")
+        self.status_title = QLabel()
+        self.status_title.setStyleSheet("color: #2457a6; font-size: 15px; font-weight: 700; background:transparent;")
+        self.status_detail = QLabel()
+        self.status_detail.setStyleSheet("color: #68758a; font-size: 13px; background:transparent;")
         status_layout.addWidget(self.status_title)
         status_layout.addWidget(self.status_detail)
 
+        control_layout.addStretch()
         control_layout.addWidget(self.timer_label)
         control_layout.addWidget(self.record_btn)
         control_layout.addLayout(status_layout)
@@ -252,8 +356,8 @@ class StudioScreen(QWidget):
         self.results_card = QFrame()
         self.results_card.setStyleSheet("""
             QFrame {
-                background-color: #111827;
-                border: 1px solid #1e293b;
+                background-color: #ffffff;
+                border: 1px solid #dfe6ef;
                 border-radius: 12px;
                 padding: 16px;
             }
@@ -265,20 +369,20 @@ class StudioScreen(QWidget):
         player_bar = QHBoxLayout()
         player_bar.setSpacing(14)
 
-        self.play_btn = QPushButton("▶ Oynat")
+        self.play_btn = QPushButton()
         self.play_btn.setCursor(Qt.PointingHandCursor)
         self.play_btn.setFixedWidth(100)
         self.play_btn.setStyleSheet("""
             QPushButton {
-                background-color: #2563eb;
-                border: 1px solid #3b82f6;
+                background-color: #2457a6;
+                border: 0;
                 color: #ffffff;
                 font-weight: 700;
                 border-radius: 8px;
                 padding: 8px;
             }
             QPushButton:hover {
-                background-color: #1d4ed8;
+                background-color: #173f7a;
             }
         """)
         self.play_btn.clicked.connect(self._toggle_play)
@@ -288,14 +392,14 @@ class StudioScreen(QWidget):
         self.seek_slider.sliderMoved.connect(self._on_slider_moved)
 
         self.audio_time_label = QLabel("00:00 / 00:00")
-        self.audio_time_label.setStyleSheet("color: #94a3b8; font-family: monospace; font-size: 13px; min-width: 110px;")
+        self.audio_time_label.setStyleSheet("color: #68758a; font-family: monospace; font-size: 13px; min-width: 110px; background:transparent;")
 
         # Metrics Pills
         self.metrics_label = QLabel("Kelime: 0  |  Hız: 0 WPM  |  Süre: 0.0s")
         self.metrics_label.setStyleSheet("""
-            background-color: #1e293b;
-            color: #38bdf8;
-            border: 1px solid #334155;
+            background-color: #edf3fc;
+            color: #2457a6;
+            border: 1px solid #cbd9ed;
             border-radius: 6px;
             padding: 6px 14px;
             font-size: 13px;
@@ -314,7 +418,7 @@ class StudioScreen(QWidget):
 
         # Tab 1: Word Timeline Table
         self.table = QTableWidget(0, 5)
-        self.table.setHorizontalHeaderLabels(["#", "ZAMAN ARALIĞI", "KELİME", "SÜRE", "İŞLEM"])
+        self.table.setAlternatingRowColors(True)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
@@ -323,7 +427,7 @@ class StudioScreen(QWidget):
         self.table.cellClicked.connect(self._on_table_cell_clicked)
         self.table.setCursor(Qt.PointingHandCursor)
 
-        self.tab_widget.addTab(self.table, "Zaman Çizelgesi (Word Timestamps)")
+        self.tab_widget.addTab(self.table, "")
 
         # Tab 2: Karaoke Reading View
         self.karaoke_view = QTextBrowser()
@@ -331,16 +435,16 @@ class StudioScreen(QWidget):
         self.karaoke_view.anchorClicked.connect(self._on_karaoke_anchor_clicked)
         self.karaoke_view.setStyleSheet("""
             QTextBrowser {
-                background-color: #0b0f19;
-                border: 1px solid #1e293b;
+                background-color: #ffffff;
+                border: 0;
                 border-radius: 8px;
                 padding: 18px;
-                color: #e2e8f0;
+                color: #172033;
                 font-size: 16px;
                 line-height: 2.2;
             }
         """)
-        self.tab_widget.addTab(self.karaoke_view, "İnteraktif Metin (Tıkla ve Dinle)")
+        self.tab_widget.addTab(self.karaoke_view, "")
 
         results_layout.addWidget(self.tab_widget)
 
@@ -348,27 +452,86 @@ class StudioScreen(QWidget):
         actions_layout = QHBoxLayout()
         actions_layout.setSpacing(10)
 
-        self.copy_btn = QPushButton("Metni Kopyala")
+        self.copy_btn = QPushButton()
         self.copy_btn.setCursor(Qt.PointingHandCursor)
         self.copy_btn.clicked.connect(self._copy_text)
 
-        self.export_txt_btn = QPushButton("Zaman Damgalı .TXT İndir")
+        self.export_txt_btn = QPushButton()
         self.export_txt_btn.setCursor(Qt.PointingHandCursor)
         self.export_txt_btn.clicked.connect(self._export_txt)
 
-        self.export_json_btn = QPushButton("JSON Olarak Kaydet")
+        self.export_json_btn = QPushButton()
         self.export_json_btn.setCursor(Qt.PointingHandCursor)
         self.export_json_btn.clicked.connect(self._export_json)
 
+        actions_layout.addStretch()
         actions_layout.addWidget(self.copy_btn)
         actions_layout.addWidget(self.export_txt_btn)
         actions_layout.addWidget(self.export_json_btn)
-        actions_layout.addStretch()
 
         results_layout.addLayout(actions_layout)
 
         main_layout.addWidget(self.results_card)
         main_layout.setStretchFactor(self.results_card, 1)
+        self._apply_language()
+
+    def _text(self, key, **values):
+        return UI_TEXT[self.language][key].format(**values)
+
+    def _task_display(self, task):
+        name = TASK_NAMES_TR.get(task["type"], task["type"]) if self.language == "tr" else task["type"]
+        return name
+
+    def set_language(self, language, emit=True):
+        self.language = "en" if language == "en" else "tr"
+        if hasattr(self, "language_switch"):
+            self.language_switch.set_language(self.language)
+        self._apply_language()
+
+        exam_info = PROMPTS.get(self.current_exam, PROMPTS["free"])
+        if hasattr(self, "task_combo") and self.task_combo.count():
+            selected = self.current_task_idx
+            self.task_combo.blockSignals(True)
+            self.task_combo.clear()
+            for task in exam_info["tasks"]:
+                self.task_combo.addItem(self._task_display(task))
+            self.task_combo.setCurrentIndex(selected)
+            self.task_combo.blockSignals(False)
+            self._refresh_instruction()
+        self._set_state(self.current_state)
+        if emit:
+            self.language_changed.emit(self.language)
+
+    def _apply_language(self):
+        if not hasattr(self, "back_btn"):
+            return
+        self.back_btn.setText(self._text("back"))
+        self.workspace_title.setText(self._text("workspace"))
+        self.task_label.setText(self._text("task"))
+        self.language_label.setText(self._text("language"))
+        self.next_prompt_btn.setText(self._text("next") + "  ↻")
+        self.play_btn.setText(self._text("play"))
+        self.tab_widget.setTabText(0, self._text("timeline"))
+        self.tab_widget.setTabText(1, self._text("karaoke"))
+        self.copy_btn.setText(self._text("copy"))
+        self.export_txt_btn.setText(self._text("export_txt"))
+        self.export_json_btn.setText(self._text("export_json"))
+        if self.language == "tr":
+            headers = ["#", "ZAMAN", "KELİME", "SÜRE", "DİNLE"]
+        else:
+            headers = ["#", "TIME", "WORD", "DURATION", "PLAY"]
+        self.table.setHorizontalHeaderLabels(headers)
+
+    def _refresh_instruction(self):
+        exam_info = PROMPTS.get(self.current_exam, PROMPTS["free"])
+        if not exam_info["tasks"] or self.current_task_idx >= len(exam_info["tasks"]):
+            return
+        task = exam_info["tasks"][self.current_task_idx]
+        instruction = task.get("instructions_tr", task["instructions"]) if self.language == "tr" else task["instructions"]
+        limit_label = "HEDEF SÜRE" if self.language == "tr" else "TIME LIMIT"
+        unit = "SN" if self.language == "tr" else "SEC"
+        limit_text = f"  ·  {limit_label}: {self.current_time_limit} {unit}" if self.current_time_limit else ""
+        self.instruction_label.setText(f"{instruction.upper()}{limit_text}")
 
     def _set_state(self, state):
         self.current_state = state
@@ -376,21 +539,24 @@ class StudioScreen(QWidget):
         if state == AppState.READY:
             self.player.stop()
             self._reset_results()
+            self.results_card.setVisible(False)
             if self.current_scenario_name:
+                scenario_label = "SENARYO" if self.language == "tr" else "SCENARIO"
+                hidden_label = "Hedef cümle gizli. Yalnızca dinleyeceksin." if self.language == "tr" else "The sentence is hidden. You will only hear it."
                 self.prompt_text_label.setText(
-                    f"<span style='color: #94a3b8; font-size: 14px;'>SENARYO: {self.current_scenario_name.upper()}</span><br><br>"
-                    f"<h2>[ 🏫 Kampüs / Laboratuvar İllüstrasyonu ]</h2><br>"
-                    f"<span style='color: #64748b;'>(Hedef cümle gizlendi. Sadece dinleyeceksiniz.)</span>"
+                    f"<span style='color:#68758a;font-size:13px;'>{scenario_label}: {self.current_scenario_name.upper()}</span><br><br>"
+                    f"<span style='color:#172033;font-size:18px;font-weight:700;'>🎧 {hidden_label}</span>"
                 )
             else:
                 self.prompt_text_label.setText(self.current_prompt)
                 
             self.record_btn.setEnabled(True)
-            self.record_btn.setText("▶ Dinle ve Başla")
+            has_audio_stimulus = bool(self.current_scenario_name)
+            self.record_btn.setText(self._text("start_listen" if has_audio_stimulus else "start_record"))
             self.record_btn.setStyleSheet("""
                 QPushButton {
-                    background-color: #2563eb;
-                    border: 2px solid #3b82f6;
+                    background-color: #2457a6;
+                    border: 0;
                     color: #ffffff;
                     font-size: 16px;
                     font-weight: 800;
@@ -398,38 +564,38 @@ class StudioScreen(QWidget):
                     padding: 12px 24px;
                 }
                 QPushButton:hover {
-                    background-color: #1d4ed8;
+                    background-color: #173f7a;
                 }
             """)
-            self.status_title.setText("● Hazır")
-            self.status_title.setStyleSheet("color: #38bdf8; font-size: 15px; font-weight: 700;")
-            self.status_detail.setText("Butona tıklayarak hedef cümleyi dinle.")
+            self.status_title.setText("● " + self._text("ready"))
+            self.status_title.setStyleSheet("color: #2457a6; font-size: 15px; font-weight: 700; background:transparent;")
+            self.status_detail.setText(self._text("ready_listen" if has_audio_stimulus else "ready_record"))
             
         elif state == AppState.PLAYING_STIMULUS:
             self.record_btn.setEnabled(False)
-            self.record_btn.setText("🔊 Dinleniyor...")
+            self.record_btn.setText("🔊 " + self._text("listening"))
             self.record_btn.setStyleSheet("""
                 QPushButton {
-                    background-color: #475569;
-                    border: 2px solid #64748b;
-                    color: #e2e8f0;
+                    background-color: #8794a7;
+                    border: 0;
+                    color: #ffffff;
                     font-size: 16px;
                     font-weight: 800;
                     border-radius: 27px;
                     padding: 12px 24px;
                 }
             """)
-            self.status_title.setText("🔊 Hedef Cümle Oynatılıyor")
-            self.status_title.setStyleSheet("color: #f59e0b; font-size: 15px; font-weight: 700;")
-            self.status_detail.setText("Lütfen cümleyi dikkatlice dinle. Bitince mikrofon otomatik açılacak...")
+            self.status_title.setText("🔊 " + self._text("listening"))
+            self.status_title.setStyleSheet("color: #b56a00; font-size: 15px; font-weight: 700; background:transparent;")
+            self.status_detail.setText(self._text("listening_detail"))
             
         elif state == AppState.RECORDING_RESPONSE:
             self.record_btn.setEnabled(True)
-            self.record_btn.setText("■ Kaydı Erken Durdur")
+            self.record_btn.setText(self._text("stop"))
             self.record_btn.setStyleSheet("""
                 QPushButton {
                     background-color: #dc2626;
-                    border: 2px solid #f87171;
+                    border: 0;
                     color: #ffffff;
                     font-size: 16px;
                     font-weight: 800;
@@ -440,21 +606,24 @@ class StudioScreen(QWidget):
                     background-color: #b91c1c;
                 }
             """)
-            self.status_title.setText("🎙 Şimdi Tekrar Et!")
-            self.status_title.setStyleSheet("color: #ef4444; font-size: 15px; font-weight: 700;")
-            self.status_detail.setText(f"Süre dolduğunda ({self.current_time_limit} sn) otomatik duracak.")
+            self.status_title.setText("● " + self._text("recording"))
+            self.status_title.setStyleSheet("color: #c52b35; font-size: 15px; font-weight: 700; background:transparent;")
+            self.status_detail.setText(self._text("remaining", seconds=self.current_time_limit) if self.current_time_limit else "")
             
         elif state == AppState.FEEDBACK:
+            self.results_card.setVisible(True)
             # Reveal the actual text
             if self.current_scenario_name:
+                scenario_label = "SENARYO" if self.language == "tr" else "SCENARIO"
+                target_label = "Hedef cümle" if self.language == "tr" else "Target sentence"
                 self.prompt_text_label.setText(
-                    f"<span style='color: #94a3b8; font-size: 14px;'>SENARYO: {self.current_scenario_name.upper()}</span><br><br>"
-                    f"<span style='color: #10b981; font-weight: bold;'>Hedef Cümle:</span><br>"
+                    f"<span style='color:#68758a;font-size:13px;'>{scenario_label}: {self.current_scenario_name.upper()}</span><br><br>"
+                    f"<span style='color:#087f6b;font-weight:bold;'>{target_label}:</span><br>"
                     f"{self.current_prompt}"
                 )
             
             self.record_btn.setEnabled(False)
-            self.record_btn.setText("✔ Tamamlandı")
+            self.record_btn.setText("✓ " + self._text("completed"))
             self.record_btn.setStyleSheet("""
                 QPushButton {
                     background-color: #065f46;
@@ -483,8 +652,7 @@ class StudioScreen(QWidget):
 
         task = tasks[self.current_task_idx]
         self.current_time_limit = task.get("time_limit", None)
-        limit_text = f" • HEDEF SÜRE: {self.current_time_limit} SN" if self.current_time_limit else ""
-        self.instruction_label.setText(f"{task['instructions'].upper()}{limit_text}")
+        self._refresh_instruction()
         
         if "scenarios" in task:
             scenarios = task["scenarios"]
@@ -535,9 +703,9 @@ class StudioScreen(QWidget):
         elif self.current_state == AppState.RECORDING_RESPONSE:
             # Manual early stop
             self.record_btn.setEnabled(False)
-            self.status_title.setText("● Kayıt tamamlanıyor...")
-            self.status_title.setStyleSheet("color: #f59e0b; font-size: 15px; font-weight: 700;")
-            self.status_detail.setText("Ses dosyası işleniyor...")
+            self.status_title.setText("● " + self._text("processing"))
+            self.status_title.setStyleSheet("color: #b56a00; font-size: 15px; font-weight: 700; background:transparent;")
+            self.status_detail.setText(self._text("processing_detail"))
             self.recorder.stop_recording()
 
     def _start_stimulus_flow(self):
@@ -593,9 +761,9 @@ class StudioScreen(QWidget):
         self.player.setMedia(QMediaContent(QUrl.fromLocalFile(wav_path)))
 
         # Start Whisper STT in background thread
-        self.status_title.setText("● faster-whisper Analiz Ediyor...")
-        self.status_title.setStyleSheet("color: #38bdf8; font-size: 15px; font-weight: 700;")
-        self.status_detail.setText("Kelimeler ve milisaniyelik zaman damgaları çıkarılıyor...")
+        self.status_title.setText("● " + self._text("analyzing"))
+        self.status_title.setStyleSheet("color: #2457a6; font-size: 15px; font-weight: 700; background:transparent;")
+        self.status_detail.setText(self._text("analyzing_detail"))
 
         self.transcriber_thread = TranscribeWorker(wav_path, model_name="base.en", parent=self)
         self.transcriber_thread.finished_signal.connect(self._on_stt_finished)
@@ -610,12 +778,12 @@ class StudioScreen(QWidget):
         wpm = result.get("wpm", 0.0)
         proc_time = result.get("process_time", 0.0)
 
-        self.status_title.setText("● Transkripsiyon Hazır!")
-        self.status_title.setStyleSheet("color: #10b981; font-size: 15px; font-weight: 700;")
-        self.status_detail.setText(f"Toplam {word_count} kelime tespit edildi. Kelimelere tıklayarak sesi tam o saniyeden dinleyebilirsin.")
+        self.status_title.setText("● " + self._text("transcript_ready"))
+        self.status_title.setStyleSheet("color: #087f6b; font-size: 15px; font-weight: 700; background:transparent;")
+        self.status_detail.setText(self._text("detected", count=word_count))
 
         self.metrics_label.setText(
-            f"Kelime: {word_count}  |  Hız: {wpm} WPM  |  Süre: {duration:.1f}s  |  STT: {proc_time}s"
+            f"{self._text('words')}: {word_count}  |  {self._text('speed')}: {wpm} WPM  |  {self._text('duration')}: {duration:.1f}s  |  STT: {proc_time}s"
         )
 
         # Populate Table
@@ -625,27 +793,27 @@ class StudioScreen(QWidget):
 
             id_item = QTableWidgetItem(str(w["id"]))
             id_item.setTextAlignment(Qt.AlignCenter)
-            id_item.setForeground(QColor("#94a3b8"))
+            id_item.setForeground(QColor("#748196"))
 
             time_str = f"{format_seconds(w['start'])} → {format_seconds(w['end'])}"
             time_item = QTableWidgetItem(time_str)
             time_item.setTextAlignment(Qt.AlignCenter)
-            time_item.setForeground(QColor("#38bdf8"))
+            time_item.setForeground(QColor("#2457a6"))
 
             word_item = QTableWidgetItem(w["word"])
             word_item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-            word_item.setForeground(QColor("#ffffff"))
+            word_item.setForeground(QColor("#172033"))
             font = QFont()
             font.setBold(True)
             word_item.setFont(font)
 
             dur_item = QTableWidgetItem(f"{w['duration']:.2f}s")
             dur_item.setTextAlignment(Qt.AlignCenter)
-            dur_item.setForeground(QColor("#a7f3d0"))
+            dur_item.setForeground(QColor("#087f6b"))
 
             play_item = QTableWidgetItem("▶ Dinle")
             play_item.setTextAlignment(Qt.AlignCenter)
-            play_item.setForeground(QColor("#60a5fa"))
+            play_item.setForeground(QColor("#2457a6"))
 
             self.table.setItem(row_idx, 0, id_item)
             self.table.setItem(row_idx, 1, time_item)
@@ -671,9 +839,9 @@ class StudioScreen(QWidget):
 
     def _on_player_state_changed(self, state):
         if state == QMediaPlayer.PlayingState:
-            self.play_btn.setText("❚❚ Duraklat")
+            self.play_btn.setText(self._text("pause"))
         else:
-            self.play_btn.setText("▶ Oynat")
+            self.play_btn.setText(self._text("play"))
 
     def _on_player_duration_changed(self, duration_ms: int):
         self.seek_slider.setRange(0, duration_ms)
@@ -733,7 +901,7 @@ class StudioScreen(QWidget):
 
     def _render_karaoke_view(self, active_id: int or None):
         if not self.current_words_data:
-            self.karaoke_view.setHtml("<p style='color: #64748b;'>Henüz bir döküm bulunmuyor. Mikrofon ile konuşarak kayıt başlatabilirsin.</p>")
+            self.karaoke_view.setHtml(f"<p style='color:#748196;'>{self._text('empty')}</p>")
             return
 
         html_tokens = []
@@ -745,13 +913,13 @@ class StudioScreen(QWidget):
             if w_id == active_id:
                 token = f"""
                 <a href="word:{w_id}" style="text-decoration: none;">
-                    <span style="background-color: #f59e0b; color: #000000; font-weight: 800; padding: 2px 7px; border-radius: 5px; font-size: 17px;">{w_text}</span>
+                    <span style="background-color:#f6c766;color:#172033;font-weight:800;padding:2px 7px;border-radius:5px;font-size:17px;">{w_text}</span>
                 </a>
                 """
             else:
                 token = f"""
-                <a href="word:{w_id}" title="[{w_time}] Tıkla ve Dinle" style="text-decoration: none; color: #f1f5f9;">
-                    <span style="padding: 2px 5px; border-radius: 4px; background-color: #1e293b;">{w_text}</span>
+                <a href="word:{w_id}" title="[{w_time}]" style="text-decoration:none;color:#172033;">
+                    <span style="padding:2px 5px;border-radius:4px;background-color:#edf2f7;">{w_text}</span>
                 </a>
                 """
             html_tokens.append(token)
@@ -759,7 +927,7 @@ class StudioScreen(QWidget):
         content = " ".join(html_tokens)
         full_html = f"""
         <html>
-        <body style="font-family: 'Segoe UI', 'Ubuntu', sans-serif; line-height: 2.2; font-size: 15px; color: #cbd5e1; background-color: #0b0f19;">
+        <body style="font-family:'Segoe UI','Ubuntu',sans-serif;line-height:2.2;font-size:15px;color:#172033;background-color:#ffffff;">
             {content}
         </body>
         </html>
@@ -784,7 +952,9 @@ class StudioScreen(QWidget):
         self.audio_time_label.setText("00:00 / 00:00")
         self.seek_slider.setRange(0, 0)
         self.seek_slider.setValue(0)
-        self.metrics_label.setText("Kelime: 0  |  Hız: 0 WPM  |  Süre: 0.0s")
+        self.metrics_label.setText(
+            f"{self._text('words')}: 0  |  {self._text('speed')}: 0 WPM  |  {self._text('duration')}: 0.0s"
+        )
 
     def _copy_text(self):
         if not self.current_words_data:
@@ -837,4 +1007,3 @@ class StudioScreen(QWidget):
                 json.dump(data, f, indent=2, ensure_ascii=False)
 
             QMessageBox.information(self, "Kaydedildi", f"JSON verisi kaydedildi:\n{file_path}")
-

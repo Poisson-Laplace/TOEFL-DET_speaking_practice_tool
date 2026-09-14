@@ -14,6 +14,7 @@ PROMPTS = {
                 "tag": "Repeat Sentence",
                 "time_limit": 10,
                 "instructions": "Listen to the sentence and repeat it exactly as you heard it. No prep time.",
+                "instructions_tr": "Cümleyi dinle ve duyduğun şekliyle tekrar et. Hazırlık süresi yok.",
                 "scenarios": [
                     {
                         "scenario_name": "university laboratory orientation",
@@ -46,6 +47,7 @@ PROMPTS = {
                 "tag": "Interview Question (45s)",
                 "time_limit": 45,
                 "instructions": "Respond directly to the interviewer's question. Speak for up to 45 seconds.",
+                "instructions_tr": "Görüşmecinin sorusuna doğrudan yanıt ver. En fazla 45 saniye konuş.",
                 "prompts": [
                     "Some people prefer living in big cities with diverse entertainment, while others prefer quiet towns. Which do you prefer and why?",
                     "Do you agree or disagree with the idea that university students should be required to take physical education classes?",
@@ -68,6 +70,7 @@ PROMPTS = {
                 "tag": "Photo Description (90s)",
                 "time_limit": 90,
                 "instructions": "Speak for up to 90 seconds describing what is happening in the scene, the setting, and infer details.",
+                "instructions_tr": "Sahneyi, ortamı ve çıkarımlarını anlatarak en fazla 90 saniye konuş.",
                 "prompts": [
                     "A bustling outdoor farmers market on a sunny morning. Vendors are arranging fresh organic vegetables and fruits under colorful canvas awnings while shoppers interact warmly.",
                     "A modern university research library where diverse students are collaborating around a large wooden table with laptops, notebooks, and reference materials.",
@@ -80,6 +83,7 @@ PROMPTS = {
                 "tag": "Read & Speak (90s)",
                 "time_limit": 90,
                 "instructions": "Read the prompt and speak for up to 90 seconds. Develop your ideas with specific reasons and examples.",
+                "instructions_tr": "Soruyu oku ve en fazla 90 saniye konuş. Fikirlerini nedenler ve örneklerle geliştir.",
                 "prompts": [
                     "Describe a memorable trip you took in the past. Where did you go, who did you go with, and why was it so significant to you?",
                     "Talk about a teacher or mentor who had a strong positive influence on your life. What qualities made them exceptional?",
@@ -92,6 +96,7 @@ PROMPTS = {
                 "tag": "Interactive Turn (35s)",
                 "time_limit": 35,
                 "instructions": "Answer the conversational question directly and spontaneously within 35 seconds.",
+                "instructions_tr": "Konuşma sorusuna 35 saniye içinde doğrudan ve doğal biçimde yanıt ver.",
                 "prompts": [
                     "How do you usually unwind and recharge after an exhausting week of work or study?",
                     "Have you ever experienced a sudden change of plans while traveling? How did you adapt to it?",
@@ -105,6 +110,7 @@ PROMPTS = {
                 "tag": "Speaking Sample (3 min)",
                 "time_limit": 180,
                 "instructions": "Speak in-depth for up to 3 minutes on this complex topic. Present well-structured arguments and insights.",
+                "instructions_tr": "Bu konu hakkında en fazla 3 dakika ayrıntılı konuş. Düzenli argümanlar ve görüşler sun.",
                 "prompts": [
                     "Some people argue that universities should focus exclusively on preparing students for specific careers, while others believe education should focus on broad intellectual curiosity. Discuss both perspectives and state your own view.",
                     "Artificial intelligence is rapidly transforming various industries. In your opinion, what are the most significant benefits and potential risks of this transformation for the global workforce?",
@@ -124,6 +130,7 @@ PROMPTS = {
                 "tag": "Impromptu Speech",
                 "time_limit": None,
                 "instructions": "Speak freely on any topic. Take as much time as you need.",
+                "instructions_tr": "İstediğin konuda serbestçe konuş. İhtiyacın kadar süre kullan.",
                 "prompts": [
                     "Summarize what you accomplished today and your key priorities for tomorrow.",
                     "Explain a complex concept from your field of study or work in simple terms to a beginner.",
