@@ -40,6 +40,66 @@ PROMPTS = {
                             "Students who wish to reserve a private study room must book it online in advance.",
                             "Please remember that eating and drinking are strictly prohibited in the rare book collection area."
                         ]
+                    },
+                    {
+                        "scenario_name": "student health center visit",
+                        "sentences": [
+                            "The clinic closes at five.",
+                            "Please check in at the front desk.",
+                            "A nurse will call your name shortly.",
+                            "You can schedule a follow-up appointment online.",
+                            "Students should bring their identification and insurance information to every appointment.",
+                            "If your symptoms become worse overnight, contact the twenty-four-hour medical advice line.",
+                            "Although walk-in visits are sometimes available, booking an appointment in advance will usually reduce your waiting time."
+                        ]
+                    },
+                    {
+                        "scenario_name": "academic advising appointment",
+                        "sentences": [
+                            "Your adviser is ready.",
+                            "Bring a copy of your schedule.",
+                            "We can review your degree requirements together.",
+                            "The registration system opens for seniors on Monday morning.",
+                            "Before changing your major, consider how many of your completed credits will transfer.",
+                            "Students who are uncertain about their course selection may request another advising appointment next week.",
+                            "Because several required seminars fill quickly, you should prepare a few alternative courses before your registration window opens."
+                        ]
+                    },
+                    {
+                        "scenario_name": "campus housing orientation",
+                        "sentences": [
+                            "Your room is upstairs.",
+                            "Laundry cards are sold here.",
+                            "Guests must leave the building by midnight.",
+                            "Report any maintenance problems through the housing website.",
+                            "Residents share responsibility for keeping the kitchen and common areas clean.",
+                            "If the fire alarm sounds, leave your belongings behind and meet outside by the north gate.",
+                            "To avoid additional charges at the end of the semester, complete the room inspection form within forty-eight hours of moving in."
+                        ]
+                    },
+                    {
+                        "scenario_name": "research skills workshop",
+                        "sentences": [
+                            "The workshop begins soon.",
+                            "Please open the course website.",
+                            "Today we will evaluate several online sources.",
+                            "Use quotation marks when searching for an exact phrase.",
+                            "Reliable academic sources normally identify their authors, evidence, and publication dates.",
+                            "When two studies reach different conclusions, compare their methods before deciding which claim is stronger.",
+                            "As you prepare your final paper, keep detailed notes so that every borrowed idea can be cited accurately and consistently."
+                        ]
+                    },
+                    {
+                        "scenario_name": "career center session",
+                        "sentences": [
+                            "Welcome to the career center.",
+                            "Upload your résumé before Friday.",
+                            "Employers will visit campus next month.",
+                            "Practice describing your experience in clear, specific terms.",
+                            "You can reserve a private room for an online interview at no cost.",
+                            "After the networking event, send each recruiter a brief message thanking them for their time.",
+                            "Even if a position does not match every one of your qualifications, a thoughtful application may still lead to an interview."
+                        ]
                     }
                 ]
             },
@@ -79,7 +139,7 @@ PROMPTS = {
                         "prompt": "Describe the people, produce, and activity at this farmers market.",
                         "image": "assets/photos/farmers_market.jpg",
                         "credit": "Alabama Extension · CC0",
-                        "source": "https://commons.wikimedia.org/wiki/File:Vegetables_at_a_Farmers_Market.jpg"
+                        "source": "https://commons.wikimedia.org/wiki/File:Green_Peppers_at_Farmers_Market.jpg"
                     },
                     {
                         "prompt": "Describe the people and study environment shown in this library.",
@@ -90,14 +150,14 @@ PROMPTS = {
                     {
                         "prompt": "Describe the person, setting, and activity in this coffee shop.",
                         "image": "assets/photos/coffee_shop.jpg",
-                        "credit": "Shixart1985 · CC BY 2.0",
-                        "source": "https://commons.wikimedia.org/wiki/File:Barista_prepares_espresso_at_coffee_shop.jpg"
+                        "credit": "Tim Wright · CC0",
+                        "source": "https://commons.wikimedia.org/wiki/File:Baristas_at_work_(Unsplash).jpg"
                     },
                     {
                         "prompt": "Describe the hikers, trail, and surrounding landscape.",
                         "image": "assets/photos/hikers.jpg",
-                        "credit": "Brian & Jaclyn Drum · CC BY 2.0",
-                        "source": "https://commons.wikimedia.org/wiki/File:Hikers_on_the_North_Inlet_Trail.jpg"
+                        "credit": "Deborah Lee Soltesz · CC0",
+                        "source": "https://commons.wikimedia.org/wiki/File:Aspen_loop_hikers_(37050338693).jpg"
                     }
                 ]
             },
@@ -120,14 +180,53 @@ PROMPTS = {
                 "tag": "Interactive Turn (35s)",
                 "time_limit": 35,
                 "prep_time": 0,
-                "instructions": "Answer the conversational question directly and spontaneously within 35 seconds.",
-                "instructions_tr": "Konuşma sorusuna 35 saniye içinde doğrudan ve doğal biçimde yanıt ver.",
-                "prompts": [
-                    "How do you usually unwind and recharge after an exhausting week of work or study?",
-                    "Have you ever experienced a sudden change of plans while traveling? How did you adapt to it?",
-                    "What role does music or art play in your daily routine?",
-                    "If you could invite any historical figure to dinner, who would you choose and what would you ask them?",
-                    "Do you prefer reading physical printed books or digital e-books? What drives your choice?"
+                "instructions": "Continue a six-turn conversation. Respond naturally to each follow-up within 35 seconds; there is no prep time.",
+                "instructions_tr": "Altı turluk konuşmayı sürdür. Her takip sorusuna hazırlık süresi olmadan 35 saniye içinde doğal biçimde yanıt ver.",
+                "conversation_sets": [
+                    {
+                        "topic": "group projects",
+                        "questions": [
+                            "Do you generally enjoy working on group projects? Why or why not?",
+                            "Tell me about a role you usually take when working with a team.",
+                            "What would you do if one team member repeatedly missed important deadlines?",
+                            "How can a group make sure quieter members have a chance to contribute?",
+                            "Do online collaboration tools improve teamwork, or can they create new problems?",
+                            "What is the most important lesson students can learn from completing a difficult project together?"
+                        ]
+                    },
+                    {
+                        "topic": "learning a new skill",
+                        "questions": [
+                            "What is a skill you would genuinely like to learn in the near future?",
+                            "What first made you interested in developing that skill?",
+                            "Would you rather learn it independently or with an instructor? Explain your choice.",
+                            "How would you stay motivated when your progress became slow?",
+                            "What practical difference could this skill make in your daily life?",
+                            "Once you became confident, how might you help someone else learn the same skill?"
+                        ]
+                    },
+                    {
+                        "topic": "campus life",
+                        "questions": [
+                            "Which part of campus life is most important for helping new students feel welcome?",
+                            "Describe an activity that could help students make friends more easily.",
+                            "Why do some students avoid joining clubs even when they are interested in them?",
+                            "How could a university encourage more students to participate in campus events?",
+                            "Should students be expected to balance social activities with academic responsibilities on their own?",
+                            "If you could create one new campus tradition, what would it be and why?"
+                        ]
+                    },
+                    {
+                        "topic": "technology and routines",
+                        "questions": [
+                            "What piece of technology do you use most often during a normal day?",
+                            "In what specific way does it make your routine easier?",
+                            "Can relying on that technology too much cause any difficulties?",
+                            "Tell me about a time when you had to complete a task without it.",
+                            "Do you think people should intentionally spend part of each day away from screens?",
+                            "How do you expect your daily use of technology to change over the next five years?"
+                        ]
+                    }
                 ]
             },
             {

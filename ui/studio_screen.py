@@ -4,6 +4,7 @@ and interactively reviewing/listening to specific words at exact seconds.
 """
 
 import os
+import html
 import json
 import random
 import re
@@ -18,7 +19,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 
 from prompts import PROMPTS
-from audio_recorder import AudioRecorder
+from audio_recorder import AudioRecorder, wav_has_speech
 from stt_engine import TranscribeWorker
 from tts_worker import TTSWorker
 from ui.language_switch import LanguageSwitch
@@ -63,6 +64,9 @@ UI_TEXT = {
         "prep": "Hazırlık süresi",
         "prep_detail": "Yanıtını planla. Kayıt otomatik başlayacak.",
         "preparing": "Hazırlan…",
+        "start_now": "● Şimdi başla",
+        "no_speech": "Ses algılanmadı",
+        "no_speech_detail": "Transkripsiyon başlatılmadı. Hazır olduğunda yeniden deneyebilirsin.",
         "match": "Cümle uyumu",
         "correct": "Doğru",
         "mostly_correct": "Büyük ölçüde doğru",
@@ -70,6 +74,8 @@ UI_TEXT = {
         "try_again": "Tekrar dene",
         "photo_credit": "Fotoğraf",
         "level": "SEVİYE",
+        "conversation": "KONUŞMA",
+        "turn": "TUR {current}/{total}",
     },
     "en": {
         "back": "← Exam selection",
@@ -109,6 +115,9 @@ UI_TEXT = {
         "prep": "Preparation time",
         "prep_detail": "Plan your response. Recording will start automatically.",
         "preparing": "Get ready…",
+        "start_now": "● Start now",
+        "no_speech": "No speech detected",
+        "no_speech_detail": "Transcription was not started. Try again when you are ready.",
         "match": "Sentence match",
         "correct": "Correct",
         "mostly_correct": "Mostly correct",
@@ -116,6 +125,8 @@ UI_TEXT = {
         "try_again": "Try again",
         "photo_credit": "Photo",
         "level": "LEVEL",
+        "conversation": "CONVERSATION",
+        "turn": "TURN {current}/{total}",
     },
 }
 
@@ -149,7 +160,7 @@ class CoverImageLabel(QLabel):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._source = QPixmap()
-        self.setMinimumHeight(230)
+        self.setFixedSize(600, 400)
         self.setAlignment(Qt.AlignCenter)
 
     def set_photo(self, path):
@@ -163,10 +174,7 @@ class CoverImageLabel(QLabel):
     def _update_scaled_pixmap(self):
         if self._source.isNull() or self.width() < 2 or self.height() < 2:
             return
-        scaled = self._source.scaled(self.size(), Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
-        x = max(0, (scaled.width() - self.width()) // 2)
-        y = max(0, (scaled.height() - self.height()) // 2)
-        self.setPixmap(scaled.copy(x, y, self.width(), self.height()))
+        self.setPixmap(self._source.scaled(self.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
 
 
 class StudioScreen(QWidget):
@@ -198,8 +206,12 @@ class StudioScreen(QWidget):
         self.stimulus_audio_path = None
         self.current_photo = None
         self.current_difficulty = None
+        self.current_conversation = None
+        self.current_conversation_topic = ""
+        self.current_turn_idx = -1
         self.settings = QSettings("SpeakingPractice", "TOEFLDETTool")
         self.difficulty_progress = {}
+        self.flow_id = 0
 
         self.prep_timer = QTimer(self)
         self.prep_timer.setInterval(1000)
@@ -220,12 +232,13 @@ class StudioScreen(QWidget):
         self.player.stateChanged.connect(self._on_player_state_changed)
         
         self.stimulus_player = QMediaPlayer(self)
-        self.stimulus_player.stateChanged.connect(self._on_stimulus_state_changed)
+        self.stimulus_player.mediaStatusChanged.connect(self._on_stimulus_media_status_changed)
 
         self._init_ui()
 
     def set_exam(self, exam_key: str):
         """Set active exam mode ('toefl', 'det', 'free') and load tasks."""
+        self._cancel_current_flow()
         self.current_exam = exam_key
         exam_info = PROMPTS.get(exam_key, PROMPTS["free"])
 
@@ -272,12 +285,15 @@ class StudioScreen(QWidget):
         self.current_task_idx = 0
         self.current_scenario_idx = 0
         self.current_sentence_idx = 0
+        self._reset_interactive_conversation()
+        self.difficulty_progress[f"{exam_key}/0"] = 0
         self._load_new_prompt()
 
     def _init_ui(self):
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(34, 22, 34, 24)
-        main_layout.setSpacing(13)
+        main_layout.setContentsMargins(28, 16, 28, 18)
+        main_layout.setSpacing(9)
+        main_layout.setAlignment(Qt.AlignTop)
 
         # ---------------- TOP NAVIGATION BAR ----------------
         top_bar = QHBoxLayout()
@@ -302,10 +318,16 @@ class StudioScreen(QWidget):
         self.back_btn.clicked.connect(self._handle_back)
 
         self.badge_label = QLabel("TOEFL 2026")
+        self.instruction_label = QLabel()
+        self.instruction_label.setWordWrap(True)
+        self.instruction_label.setAlignment(Qt.AlignCenter)
+        self.instruction_label.setStyleSheet(
+            "color:#2457a6;font-size:10px;font-weight:800;letter-spacing:0.3px;background:transparent;"
+        )
 
         top_bar.addWidget(self.back_btn)
         top_bar.addWidget(self.badge_label)
-        top_bar.addStretch()
+        top_bar.addWidget(self.instruction_label, 1)
         self.language_label = QLabel()
         self.language_label.setStyleSheet("color:#68758a; font-size:12px; background:transparent;")
         self.language_switch = LanguageSwitch()
@@ -321,7 +343,7 @@ class StudioScreen(QWidget):
         self.task_label = QLabel()
         self.task_label.setStyleSheet("color:#68758a; font-size:12px; background:transparent;")
         self.task_combo = QComboBox()
-        self.task_combo.currentIndexChanged.connect(self._on_task_changed)
+        self.task_combo.activated[int].connect(self._on_task_changed)
         self.task_combo.setMinimumWidth(300)
         self.next_prompt_btn = QPushButton()
         self.next_prompt_btn.setCursor(Qt.PointingHandCursor)
@@ -339,28 +361,27 @@ class StudioScreen(QWidget):
 
         # ---------------- PROMPT CARD ----------------
         self.prompt_card = QFrame()
+        self.prompt_card.setObjectName("promptCard")
         self.prompt_card.setStyleSheet("""
-            QFrame {
+            QFrame#promptCard {
                 background-color: #ffffff;
                 border: 1px solid #dfe6ef;
                 border-radius: 12px;
-                padding: 16px 20px;
             }
         """)
         prompt_layout = QVBoxLayout(self.prompt_card)
-        prompt_layout.setSpacing(8)
-
-        self.instruction_label = QLabel()
-        self.instruction_label.setStyleSheet("color: #2457a6; font-size: 11px; font-weight: 800; letter-spacing: 0.5px; background:transparent;")
+        prompt_layout.setContentsMargins(18, 12, 18, 12)
+        prompt_layout.setSpacing(6)
 
         self.prompt_text_label = QLabel("Prompt metni buraya gelecek...")
         self.prompt_text_label.setWordWrap(True)
         self.prompt_text_label.setStyleSheet("color: #172033; font-size: 16px; font-weight: 600; line-height: 1.5; background:transparent;")
         self.prompt_text_label.setAlignment(Qt.AlignCenter)
 
-        prompt_layout.addWidget(self.instruction_label)
         self.photo_frame = QFrame()
-        self.photo_frame.setStyleSheet("QFrame{background:#eef2f7;border:0;border-radius:10px;}")
+        self.photo_frame.setObjectName("photoFrame")
+        self.photo_frame.setFixedWidth(600)
+        self.photo_frame.setStyleSheet("QFrame#photoFrame{background:#eef2f7;border:0;border-radius:10px;}")
         photo_layout = QVBoxLayout(self.photo_frame)
         photo_layout.setContentsMargins(0, 0, 0, 0)
         photo_layout.setSpacing(0)
@@ -374,27 +395,29 @@ class StudioScreen(QWidget):
         photo_layout.addWidget(self.photo_label)
         photo_layout.addWidget(self.photo_credit_label)
         self.photo_frame.setVisible(False)
-        prompt_layout.addWidget(self.photo_frame)
+        prompt_layout.addWidget(self.photo_frame, alignment=Qt.AlignCenter)
         prompt_layout.addWidget(self.prompt_text_label)
         main_layout.addWidget(self.prompt_card)
 
         # ---------------- RECORDING & STATUS CONSOLE ----------------
-        control_card = QFrame()
-        control_card.setStyleSheet("""
-            QFrame {
+        self.control_card = QFrame()
+        self.control_card.setObjectName("controlCard")
+        self.control_card.setMaximumHeight(112)
+        self.control_card.setStyleSheet("""
+            QFrame#controlCard {
                 background-color: #ffffff;
                 border: 1px solid #dfe6ef;
                 border-radius: 12px;
-                padding: 16px 20px;
             }
         """)
-        control_layout = QHBoxLayout(control_card)
-        control_layout.setSpacing(24)
+        control_layout = QHBoxLayout(self.control_card)
+        control_layout.setContentsMargins(18, 12, 18, 12)
+        control_layout.setSpacing(16)
 
         # Big Timer
         self.timer_label = QLabel("00:00")
         self.timer_label.setStyleSheet("""
-            font-size: 42px;
+            font-size: 32px;
             font-weight: 800;
             color: #173f7a;
             font-family: 'Courier New', monospace;
@@ -404,13 +427,12 @@ class StudioScreen(QWidget):
             padding: 4px 16px;
         """)
         self.timer_label.setAlignment(Qt.AlignCenter)
-        self.timer_label.setMinimumWidth(150)
+        self.timer_label.setFixedSize(132, 70)
 
         # Record Button
         self.record_btn = QPushButton("▶ Dinle ve Başla")
         self.record_btn.setCursor(Qt.PointingHandCursor)
-        self.record_btn.setMinimumHeight(54)
-        self.record_btn.setMinimumWidth(210)
+        self.record_btn.setFixedSize(205, 48)
         self.record_btn.clicked.connect(self._handle_main_action)
 
         # Status & Info
@@ -419,6 +441,8 @@ class StudioScreen(QWidget):
         self.status_title = QLabel()
         self.status_title.setStyleSheet("color: #2457a6; font-size: 15px; font-weight: 700; background:transparent;")
         self.status_detail = QLabel()
+        self.status_detail.setWordWrap(True)
+        self.status_detail.setMinimumWidth(290)
         self.status_detail.setStyleSheet("color: #68758a; font-size: 13px; background:transparent;")
         status_layout.addWidget(self.status_title)
         status_layout.addWidget(self.status_detail)
@@ -429,20 +453,21 @@ class StudioScreen(QWidget):
         control_layout.addLayout(status_layout)
         control_layout.addStretch()
 
-        main_layout.addWidget(control_card)
+        main_layout.addWidget(self.control_card)
 
         # ---------------- RESULTS & AUDIO PLAYER SECTION ----------------
         self.results_card = QFrame()
+        self.results_card.setObjectName("resultsCard")
         self.results_card.setStyleSheet("""
-            QFrame {
+            QFrame#resultsCard {
                 background-color: #ffffff;
                 border: 1px solid #dfe6ef;
                 border-radius: 12px;
-                padding: 16px;
             }
         """)
         results_layout = QVBoxLayout(self.results_card)
-        results_layout.setSpacing(12)
+        results_layout.setContentsMargins(14, 12, 14, 12)
+        results_layout.setSpacing(8)
 
         # Top Audio Player Bar
         player_bar = QHBoxLayout()
@@ -503,6 +528,7 @@ class StudioScreen(QWidget):
 
         # Tab 1: Word Timeline Table
         self.table = QTableWidget(0, 5)
+        self.table.setMinimumHeight(205)
         self.table.setAlternatingRowColors(True)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
@@ -530,6 +556,7 @@ class StudioScreen(QWidget):
             }
         """)
         self.tab_widget.addTab(self.karaoke_view, "")
+        self.tab_widget.setMinimumHeight(255)
 
         results_layout.addWidget(self.tab_widget)
 
@@ -630,15 +657,7 @@ class StudioScreen(QWidget):
             self.player.stop()
             self._reset_results()
             self.results_card.setVisible(False)
-            if self.current_scenario_name:
-                scenario_label = "SENARYO" if self.language == "tr" else "SCENARIO"
-                hidden_label = "Hedef cümle gizli. Yalnızca dinleyeceksin." if self.language == "tr" else "The sentence is hidden. You will only hear it."
-                self.prompt_text_label.setText(
-                    f"<span style='color:#68758a;font-size:13px;'>{scenario_label}: {self.current_scenario_name.upper()}</span><br><br>"
-                    f"<span style='color:#172033;font-size:18px;font-weight:700;'>🎧 {hidden_label}</span>"
-                )
-            else:
-                self.prompt_text_label.setText(self.current_prompt)
+            self._render_current_prompt()
                 
             self.record_btn.setEnabled(True)
             has_audio_stimulus = bool(self.current_scenario_name)
@@ -665,8 +684,9 @@ class StudioScreen(QWidget):
             self.player.stop()
             self._reset_results()
             self.results_card.setVisible(False)
-            self.record_btn.setEnabled(False)
-            self.record_btn.setText(self._text("preparing"))
+            self._render_current_prompt()
+            self.record_btn.setEnabled(True)
+            self.record_btn.setText(self._text("start_now"))
             self.record_btn.setStyleSheet("""
                 QPushButton {
                     background-color:#d97706; border:0; color:#ffffff; font-size:16px;
@@ -719,15 +739,7 @@ class StudioScreen(QWidget):
             
         elif state == AppState.FEEDBACK:
             self.results_card.setVisible(True)
-            # Reveal the actual text
-            if self.current_scenario_name:
-                scenario_label = "SENARYO" if self.language == "tr" else "SCENARIO"
-                target_label = "Hedef cümle" if self.language == "tr" else "Target sentence"
-                self.prompt_text_label.setText(
-                    f"<span style='color:#68758a;font-size:13px;'>{scenario_label}: {self.current_scenario_name.upper()}</span><br><br>"
-                    f"<span style='color:#087f6b;font-weight:bold;'>{target_label}:</span><br>"
-                    f"{self.current_prompt}"
-                )
+            self._render_current_prompt(reveal_target=True)
             
             self.record_btn.setEnabled(False)
             self.record_btn.setText("✓ " + self._text("completed"))
@@ -749,10 +761,17 @@ class StudioScreen(QWidget):
             self.current_task_idx = idx
             self.current_scenario_idx = 0
             self.current_sentence_idx = 0
+            self._reset_interactive_conversation()
+            self.difficulty_progress[f"{self.current_exam}/{idx}"] = 0
             self._load_new_prompt()
 
+    def _reset_interactive_conversation(self):
+        self.current_conversation = None
+        self.current_conversation_topic = ""
+        self.current_turn_idx = -1
+
     def _load_new_prompt(self):
-        self.prep_timer.stop()
+        self._cancel_current_flow()
         exam_info = PROMPTS.get(self.current_exam, PROMPTS["free"])
         tasks = exam_info["tasks"]
         if not tasks or self.current_task_idx >= len(tasks):
@@ -765,9 +784,10 @@ class StudioScreen(QWidget):
         self.current_difficulty = None
         
         if "scenarios" in task:
+            self._reset_interactive_conversation()
             scenarios = task["scenarios"]
-            progress_key = f"progress/{self.current_exam}/{self.current_task_idx}"
-            progress = int(self.settings.value(progress_key, 0))
+            progress_key = f"{self.current_exam}/{self.current_task_idx}"
+            progress = self.difficulty_progress.get(progress_key, 0)
             max_level = min(len(item["sentences"]) for item in scenarios)
             difficulty_index = progress % max_level
             candidates = list(enumerate(scenarios))
@@ -778,9 +798,27 @@ class StudioScreen(QWidget):
             self.current_difficulty = (difficulty_index + 1, max_level)
             self.current_prompt = scenario["sentences"][difficulty_index]
             self.current_scenario_name = scenario["scenario_name"]
-            self.settings.setValue(progress_key, progress + 1)
+            self.difficulty_progress[progress_key] = progress + 1
             self.settings.setValue(f"last_prompt/{self.current_exam}/{self.current_task_idx}", self.current_prompt)
+        elif "conversation_sets" in task:
+            self.current_scenario_name = ""
+            conversation_sets = task["conversation_sets"]
+            if (
+                self.current_conversation is None
+                or self.current_turn_idx + 1 >= len(self.current_conversation["questions"])
+            ):
+                last_topic_key = f"last_conversation/{self.current_exam}/{self.current_task_idx}"
+                last_topic = self.settings.value(last_topic_key, "")
+                candidates = [item for item in conversation_sets if item["topic"] != last_topic]
+                self.current_conversation = random.choice(candidates or conversation_sets)
+                self.current_conversation_topic = self.current_conversation["topic"]
+                self.current_turn_idx = 0
+                self.settings.setValue(last_topic_key, self.current_conversation_topic)
+            else:
+                self.current_turn_idx += 1
+            self.current_prompt = self.current_conversation["questions"][self.current_turn_idx]
         else:
+            self._reset_interactive_conversation()
             self.current_scenario_name = ""
             prompts_list = task.get("prompts", [])
             if prompts_list:
@@ -793,7 +831,11 @@ class StudioScreen(QWidget):
                 candidates = [item for item in prompts_list if self._prompt_value(item) not in used_prompts]
                 if not candidates:
                     used_prompts = []
-                    candidates = list(prompts_list)
+                    last_prompt = self.settings.value(key, "")
+                    candidates = [
+                        item for item in prompts_list
+                        if self._prompt_value(item) != last_prompt
+                    ] or list(prompts_list)
                 selected = random.choice(candidates or prompts_list)
                 self.current_prompt = self._prompt_value(selected)
                 used_prompts.append(self.current_prompt)
@@ -830,9 +872,37 @@ class StudioScreen(QWidget):
             )
             self.photo_frame.setVisible(True)
             self.prompt_text_label.setVisible(False)
+            self.prompt_card.setMaximumHeight(456)
         else:
             self.photo_frame.setVisible(False)
             self.prompt_text_label.setVisible(True)
+            self.prompt_card.setMaximumHeight(105)
+            self._render_current_prompt()
+
+    def _render_current_prompt(self, reveal_target=False):
+        if self.current_scenario_name:
+            if reveal_target:
+                target_label = "Hedef cümle" if self.language == "tr" else "Target sentence"
+                self.prompt_text_label.setText(
+                    f"<span style='color:#087f6b;font-weight:bold;'>{target_label}:</span> "
+                    f"<span style='color:#172033;font-weight:700;'>{html.escape(self.current_prompt)}</span>"
+                )
+            else:
+                hidden_label = "Hedef cümle gizli. Yalnızca dinleyeceksin." if self.language == "tr" else "The sentence is hidden. You will only hear it."
+                self.prompt_text_label.setText(
+                    f"<span style='color:#172033;font-size:18px;font-weight:700;'>🎧 {hidden_label}</span>"
+                )
+        elif self.current_conversation:
+            total = len(self.current_conversation["questions"])
+            turn_label = self._text("turn", current=self.current_turn_idx + 1, total=total)
+            self.prompt_text_label.setText(
+                f"<span style='color:#087f6b;font-size:12px;font-weight:800;'>"
+                f"{self._text('conversation')}: {html.escape(self.current_conversation_topic.upper())} · {turn_label}"
+                f"</span><br><span style='color:#172033;font-size:17px;font-weight:700;'>"
+                f"{html.escape(self.current_prompt)}</span>"
+            )
+        else:
+            self.prompt_text_label.setText(self.current_prompt)
 
     def _show_prep_time(self):
         mins, secs = divmod(max(0, self.prep_remaining), 60)
@@ -846,16 +916,26 @@ class StudioScreen(QWidget):
             self._start_recording_response()
 
     def _handle_back(self):
+        self._cancel_current_flow()
+        self.back_to_selector.emit()
+
+    def _cancel_current_flow(self):
+        """Invalidate callbacks and stop media/recording when context changes."""
+        self.flow_id += 1
         self.prep_timer.stop()
-        if self.recorder.is_recording:
-            self.recorder.stop_recording()
         self.player.stop()
         self.stimulus_player.stop()
-        self.back_to_selector.emit()
+        if self.recorder.is_recording:
+            self.recorder.stop_recording(discard=True)
+        self.current_audio_path = None
 
     # ---------------- RECORDING & MAIN ACTION ----------------
     def _handle_main_action(self):
-        if self.current_state == AppState.READY:
+        if self.current_state == AppState.PREPARING:
+            self.prep_timer.stop()
+            self._start_recording_response()
+
+        elif self.current_state == AppState.READY:
             # Note: For non-scenario tasks without TTS, we might just jump to recording
             if self.current_scenario_name:
                 self._start_stimulus_flow()
@@ -872,22 +952,31 @@ class StudioScreen(QWidget):
 
     def _start_stimulus_flow(self):
         self._set_state(AppState.PLAYING_STIMULUS)
+        flow_id = self.flow_id
         self.tts_thread = TTSWorker(self.current_prompt, self)
-        self.tts_thread.finished_signal.connect(self._on_tts_finished)
-        self.tts_thread.error_signal.connect(self._on_tts_error)
+        self.tts_thread.finished_signal.connect(
+            lambda path, active_flow=flow_id: self._on_tts_finished(path, active_flow)
+        )
+        self.tts_thread.error_signal.connect(
+            lambda message, active_flow=flow_id: self._on_tts_error(message, active_flow)
+        )
         self.tts_thread.start()
 
-    def _on_tts_finished(self, audio_path):
+    def _on_tts_finished(self, audio_path, flow_id):
+        if flow_id != self.flow_id or self.current_state != AppState.PLAYING_STIMULUS:
+            return
         self.stimulus_audio_path = audio_path
         self.stimulus_player.setMedia(QMediaContent(QUrl.fromLocalFile(audio_path)))
         self.stimulus_player.play()
 
-    def _on_tts_error(self, err_msg):
+    def _on_tts_error(self, err_msg, flow_id):
+        if flow_id != self.flow_id:
+            return
         QMessageBox.warning(self, "TTS Hatası", f"Ses üretilemedi: {err_msg}")
         self._set_state(AppState.READY)
 
-    def _on_stimulus_state_changed(self, state):
-        if self.current_state == AppState.PLAYING_STIMULUS and state == QMediaPlayer.StoppedState:
+    def _on_stimulus_media_status_changed(self, status):
+        if self.current_state == AppState.PLAYING_STIMULUS and status == QMediaPlayer.EndOfMedia:
             self._start_recording_response()
 
     def _start_recording_response(self):
@@ -922,17 +1011,38 @@ class StudioScreen(QWidget):
         # Setup audio player
         self.player.setMedia(QMediaContent(QUrl.fromLocalFile(wav_path)))
 
+        if not wav_has_speech(wav_path):
+            self.status_title.setText("● " + self._text("no_speech"))
+            self.status_title.setStyleSheet("color:#b56a00;font-size:15px;font-weight:700;background:transparent;")
+            self.status_detail.setText(self._text("no_speech_detail"))
+            self.metrics_label.setText("")
+            self._update_accuracy_feedback("")
+            return
+
         # Start Whisper STT in background thread
         self.status_title.setText("● " + self._text("analyzing"))
         self.status_title.setStyleSheet("color: #2457a6; font-size: 15px; font-weight: 700; background:transparent;")
         self.status_detail.setText(self._text("analyzing_detail"))
 
+        flow_id = self.flow_id
         self.transcriber_thread = TranscribeWorker(wav_path, model_name="base.en", parent=self)
-        self.transcriber_thread.finished_signal.connect(self._on_stt_finished)
-        self.transcriber_thread.error_signal.connect(self._on_stt_error)
+        self.transcriber_thread.finished_signal.connect(
+            lambda result, active_flow=flow_id: self._on_stt_finished_for_flow(result, active_flow)
+        )
+        self.transcriber_thread.error_signal.connect(
+            lambda message, active_flow=flow_id: self._on_stt_error_for_flow(message, active_flow)
+        )
         self.transcriber_thread.start()
 
     # ---------------- STT RESULTS HANDLING ----------------
+    def _on_stt_finished_for_flow(self, result: dict, flow_id: int):
+        if flow_id == self.flow_id:
+            self._on_stt_finished(result)
+
+    def _on_stt_error_for_flow(self, err_msg: str, flow_id: int):
+        if flow_id == self.flow_id:
+            self._on_stt_error(err_msg)
+
     def _on_stt_finished(self, result: dict):
         self.current_words_data = result.get("words", [])
         duration = result.get("duration", 0.0)

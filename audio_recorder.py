@@ -3,13 +3,41 @@ Audio recording module using ffmpeg pulse/alsa input for high quality 16kHz WAV 
 """
 
 import os
+import math
+import struct
 import time
 import subprocess
+import wave
 from datetime import datetime
 from PyQt5.QtCore import QObject, QTimer, pyqtSignal
 
 RECORDINGS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recordings")
 os.makedirs(RECORDINGS_DIR, exist_ok=True)
+
+
+def wav_has_speech(path: str, rms_threshold: int = 350, min_active_chunks: int = 3) -> bool:
+    """Return True when a 16-bit WAV contains more than a brief noise spike."""
+    try:
+        with wave.open(path, "rb") as wav_file:
+            if wav_file.getsampwidth() != 2:
+                return True
+            chunk_frames = max(1, wav_file.getframerate() // 10)
+            active_chunks = 0
+            while True:
+                raw = wav_file.readframes(chunk_frames)
+                if not raw:
+                    break
+                sample_count = len(raw) // 2
+                samples = struct.unpack(f"<{sample_count}h", raw[:sample_count * 2])
+                rms = math.sqrt(sum(sample * sample for sample in samples) / max(1, sample_count))
+                if rms >= rms_threshold:
+                    active_chunks += 1
+                    if active_chunks >= min_active_chunks:
+                        return True
+        return False
+    except (OSError, EOFError, wave.Error, struct.error):
+        # Do not discard a valid response merely because its header could not be inspected.
+        return True
 
 
 class AudioRecorder(QObject):
@@ -84,7 +112,7 @@ class AudioRecorder(QObject):
             if self.max_duration is not None and self.elapsed_seconds >= self.max_duration:
                 self.stop_recording()
 
-    def stop_recording(self) -> str:
+    def stop_recording(self, discard: bool = False) -> str:
         if not self.is_recording:
             return self.output_path or ""
 
@@ -111,6 +139,8 @@ class AudioRecorder(QObject):
         finally:
             self.process = None
 
+        if discard:
+            return final_path or ""
         if os.path.exists(final_path) and os.path.getsize(final_path) > 100:
             self.finished.emit(final_path, final_duration)
             return final_path
