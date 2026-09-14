@@ -65,6 +65,8 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         # Stop any ongoing recording or audio playback gracefully
+        if hasattr(self.studio_screen, "prep_timer"):
+            self.studio_screen.prep_timer.stop()
         if hasattr(self.studio_screen, "recorder") and self.studio_screen.recorder.is_recording:
             self.studio_screen.recorder.stop_recording()
         if hasattr(self.studio_screen, "player"):

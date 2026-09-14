@@ -6,8 +6,10 @@ and interactively reviewing/listening to specific words at exact seconds.
 import os
 import json
 import random
-from PyQt5.QtCore import Qt, QUrl, pyqtSignal
-from PyQt5.QtGui import QColor, QFont
+import re
+from difflib import SequenceMatcher
+from PyQt5.QtCore import Qt, QUrl, pyqtSignal, QTimer, QSettings
+from PyQt5.QtGui import QColor, QFont, QPixmap
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
     QComboBox, QTableWidget, QTableWidgetItem, QHeaderView, QSlider,
@@ -58,6 +60,16 @@ UI_TEXT = {
         "detected": "{count} kelime bulundu. Bir kelimeye tıklayarak o noktadan dinleyebilirsin.",
         "empty": "Henüz transkripsiyon yok. Bir yanıt kaydettiğinde burada görünecek.",
         "instruction": "YÖNERGE",
+        "prep": "Hazırlık süresi",
+        "prep_detail": "Yanıtını planla. Kayıt otomatik başlayacak.",
+        "preparing": "Hazırlan…",
+        "match": "Cümle uyumu",
+        "correct": "Doğru",
+        "mostly_correct": "Büyük ölçüde doğru",
+        "partial": "Kısmen doğru",
+        "try_again": "Tekrar dene",
+        "photo_credit": "Fotoğraf",
+        "level": "SEVİYE",
     },
     "en": {
         "back": "← Exam selection",
@@ -94,6 +106,16 @@ UI_TEXT = {
         "detected": "Found {count} words. Click any word to play from that point.",
         "empty": "No transcript yet. Your response will appear here after recording.",
         "instruction": "INSTRUCTIONS",
+        "prep": "Preparation time",
+        "prep_detail": "Plan your response. Recording will start automatically.",
+        "preparing": "Get ready…",
+        "match": "Sentence match",
+        "correct": "Correct",
+        "mostly_correct": "Mostly correct",
+        "partial": "Partly correct",
+        "try_again": "Try again",
+        "photo_credit": "Photo",
+        "level": "LEVEL",
     },
 }
 
@@ -115,9 +137,36 @@ def format_seconds(seconds: float) -> str:
 
 class AppState:
     READY = "READY"
+    PREPARING = "PREPARING"
     PLAYING_STIMULUS = "PLAYING_STIMULUS"
     RECORDING_RESPONSE = "RECORDING_RESPONSE"
     FEEDBACK = "FEEDBACK"
+
+
+class CoverImageLabel(QLabel):
+    """Displays a pixmap as a centered, non-distorted cover image."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._source = QPixmap()
+        self.setMinimumHeight(230)
+        self.setAlignment(Qt.AlignCenter)
+
+    def set_photo(self, path):
+        self._source = QPixmap(path)
+        self._update_scaled_pixmap()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._update_scaled_pixmap()
+
+    def _update_scaled_pixmap(self):
+        if self._source.isNull() or self.width() < 2 or self.height() < 2:
+            return
+        scaled = self._source.scaled(self.size(), Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+        x = max(0, (scaled.width() - self.width()) // 2)
+        y = max(0, (scaled.height() - self.height()) // 2)
+        self.setPixmap(scaled.copy(x, y, self.width(), self.height()))
 
 
 class StudioScreen(QWidget):
@@ -136,6 +185,8 @@ class StudioScreen(QWidget):
         self.current_prompt = ""
         self.current_scenario_name = ""
         self.current_time_limit = None
+        self.current_prep_time = 0
+        self.prep_remaining = 0
         self.current_scenario_idx = 0
         self.current_sentence_idx = 0
         self.current_words_data = []
@@ -145,6 +196,14 @@ class StudioScreen(QWidget):
         self.current_state = AppState.READY
         self.tts_thread = None
         self.stimulus_audio_path = None
+        self.current_photo = None
+        self.current_difficulty = None
+        self.settings = QSettings("SpeakingPractice", "TOEFLDETTool")
+        self.difficulty_progress = {}
+
+        self.prep_timer = QTimer(self)
+        self.prep_timer.setInterval(1000)
+        self.prep_timer.timeout.connect(self._on_prep_tick)
 
         # Core Engines
         self.recorder = AudioRecorder(self)
@@ -266,6 +325,10 @@ class StudioScreen(QWidget):
         self.task_combo.setMinimumWidth(300)
         self.next_prompt_btn = QPushButton()
         self.next_prompt_btn.setCursor(Qt.PointingHandCursor)
+        self.next_prompt_btn.setStyleSheet("""
+            QPushButton { background:#087f6b; color:#ffffff; border:0; font-weight:700; }
+            QPushButton:hover { background:#066b5a; }
+        """)
         self.next_prompt_btn.clicked.connect(self._load_new_prompt)
         workspace_bar.addWidget(self.workspace_title)
         workspace_bar.addStretch()
@@ -296,6 +359,22 @@ class StudioScreen(QWidget):
         self.prompt_text_label.setAlignment(Qt.AlignCenter)
 
         prompt_layout.addWidget(self.instruction_label)
+        self.photo_frame = QFrame()
+        self.photo_frame.setStyleSheet("QFrame{background:#eef2f7;border:0;border-radius:10px;}")
+        photo_layout = QVBoxLayout(self.photo_frame)
+        photo_layout.setContentsMargins(0, 0, 0, 0)
+        photo_layout.setSpacing(0)
+        self.photo_label = CoverImageLabel()
+        self.photo_label.setStyleSheet("background:#e8edf4;border:0;border-radius:10px;")
+        self.photo_credit_label = QLabel()
+        self.photo_credit_label.setOpenExternalLinks(True)
+        self.photo_credit_label.setTextInteractionFlags(Qt.TextBrowserInteraction)
+        self.photo_credit_label.setStyleSheet("background:#172033;color:#ffffff;padding:5px 9px;font-size:10px;")
+        self.photo_credit_label.setFixedHeight(30)
+        photo_layout.addWidget(self.photo_label)
+        photo_layout.addWidget(self.photo_credit_label)
+        self.photo_frame.setVisible(False)
+        prompt_layout.addWidget(self.photo_frame)
         prompt_layout.addWidget(self.prompt_text_label)
         main_layout.addWidget(self.prompt_card)
 
@@ -413,6 +492,12 @@ class StudioScreen(QWidget):
 
         results_layout.addLayout(player_bar)
 
+        self.accuracy_label = QLabel()
+        self.accuracy_label.setAlignment(Qt.AlignCenter)
+        self.accuracy_label.setStyleSheet("background:#eaf8f4;color:#087f6b;border:1px solid #a9decf;border-radius:8px;padding:9px;font-size:14px;font-weight:800;")
+        self.accuracy_label.setVisible(False)
+        results_layout.addWidget(self.accuracy_label)
+
         # Dual Tab View (Word Timeline Table vs. Karaoke Flow View)
         self.tab_widget = QTabWidget()
 
@@ -498,6 +583,7 @@ class StudioScreen(QWidget):
             self.task_combo.setCurrentIndex(selected)
             self.task_combo.blockSignals(False)
             self._refresh_instruction()
+        self._display_prompt_media()
         self._set_state(self.current_state)
         if emit:
             self.language_changed.emit(self.language)
@@ -531,7 +617,11 @@ class StudioScreen(QWidget):
         limit_label = "HEDEF SÜRE" if self.language == "tr" else "TIME LIMIT"
         unit = "SN" if self.language == "tr" else "SEC"
         limit_text = f"  ·  {limit_label}: {self.current_time_limit} {unit}" if self.current_time_limit else ""
-        self.instruction_label.setText(f"{instruction.upper()}{limit_text}")
+        difficulty_text = ""
+        if self.current_difficulty:
+            current, total = self.current_difficulty
+            difficulty_text = f"  ·  {self._text('level')}: {current}/{total}"
+        self.instruction_label.setText(f"{instruction.upper()}{limit_text}{difficulty_text}")
 
     def _set_state(self, state):
         self.current_state = state
@@ -570,6 +660,23 @@ class StudioScreen(QWidget):
             self.status_title.setText("● " + self._text("ready"))
             self.status_title.setStyleSheet("color: #2457a6; font-size: 15px; font-weight: 700; background:transparent;")
             self.status_detail.setText(self._text("ready_listen" if has_audio_stimulus else "ready_record"))
+
+        elif state == AppState.PREPARING:
+            self.player.stop()
+            self._reset_results()
+            self.results_card.setVisible(False)
+            self.record_btn.setEnabled(False)
+            self.record_btn.setText(self._text("preparing"))
+            self.record_btn.setStyleSheet("""
+                QPushButton {
+                    background-color:#d97706; border:0; color:#ffffff; font-size:16px;
+                    font-weight:800; border-radius:27px; padding:12px 24px;
+                }
+            """)
+            self.status_title.setText("● " + self._text("prep"))
+            self.status_title.setStyleSheet("color:#b56a00;font-size:15px;font-weight:700;background:transparent;")
+            self.status_detail.setText(self._text("prep_detail"))
+            self._show_prep_time()
             
         elif state == AppState.PLAYING_STIMULUS:
             self.record_btn.setEnabled(False)
@@ -645,6 +752,7 @@ class StudioScreen(QWidget):
             self._load_new_prompt()
 
     def _load_new_prompt(self):
+        self.prep_timer.stop()
         exam_info = PROMPTS.get(self.current_exam, PROMPTS["free"])
         tasks = exam_info["tasks"]
         if not tasks or self.current_task_idx >= len(tasks):
@@ -652,39 +760,93 @@ class StudioScreen(QWidget):
 
         task = tasks[self.current_task_idx]
         self.current_time_limit = task.get("time_limit", None)
-        self._refresh_instruction()
+        self.current_prep_time = int(task.get("prep_time", 0) or 0)
+        self.current_photo = None
+        self.current_difficulty = None
         
         if "scenarios" in task:
             scenarios = task["scenarios"]
-            if self.current_scenario_idx >= len(scenarios):
-                self.current_scenario_idx = 0
-                
-            scenario = scenarios[self.current_scenario_idx]
-            sentences = scenario["sentences"]
-            
-            if self.current_sentence_idx >= len(sentences):
-                # Move to next scenario
-                self.current_scenario_idx = (self.current_scenario_idx + 1) % len(scenarios)
-                scenario = scenarios[self.current_scenario_idx]
-                sentences = scenario["sentences"]
-                self.current_sentence_idx = 0
-                
-            self.current_prompt = sentences[self.current_sentence_idx]
+            progress_key = f"progress/{self.current_exam}/{self.current_task_idx}"
+            progress = int(self.settings.value(progress_key, 0))
+            max_level = min(len(item["sentences"]) for item in scenarios)
+            difficulty_index = progress % max_level
+            candidates = list(enumerate(scenarios))
+            last_prompt = self.settings.value(f"last_prompt/{self.current_exam}/{self.current_task_idx}", "")
+            filtered = [item for item in candidates if item[1]["sentences"][difficulty_index] != last_prompt]
+            self.current_scenario_idx, scenario = random.choice(filtered or candidates)
+            self.current_sentence_idx = difficulty_index
+            self.current_difficulty = (difficulty_index + 1, max_level)
+            self.current_prompt = scenario["sentences"][difficulty_index]
             self.current_scenario_name = scenario["scenario_name"]
-            
-            self._set_state(AppState.READY)
-            
-            self.current_sentence_idx += 1
+            self.settings.setValue(progress_key, progress + 1)
+            self.settings.setValue(f"last_prompt/{self.current_exam}/{self.current_task_idx}", self.current_prompt)
         else:
             self.current_scenario_name = ""
             prompts_list = task.get("prompts", [])
             if prompts_list:
-                self.current_prompt = random.choice(prompts_list)
+                key = f"last_prompt/{self.current_exam}/{self.current_task_idx}"
+                history_key = f"prompt_history/{self.current_exam}/{self.current_task_idx}"
+                try:
+                    used_prompts = json.loads(self.settings.value(history_key, "[]"))
+                except (TypeError, ValueError):
+                    used_prompts = []
+                candidates = [item for item in prompts_list if self._prompt_value(item) not in used_prompts]
+                if not candidates:
+                    used_prompts = []
+                    candidates = list(prompts_list)
+                selected = random.choice(candidates or prompts_list)
+                self.current_prompt = self._prompt_value(selected)
+                used_prompts.append(self.current_prompt)
+                self.settings.setValue(key, self.current_prompt)
+                self.settings.setValue(history_key, json.dumps(used_prompts))
+                if isinstance(selected, dict):
+                    self.current_photo = selected
             else:
                 self.current_prompt = "İstediğin konuda serbestçe konuşabilirsin."
+
+        self._refresh_instruction()
+        self._display_prompt_media()
+        if self.current_prep_time:
+            self.prep_remaining = self.current_prep_time
+            self._set_state(AppState.PREPARING)
+            self.prep_timer.start()
+        else:
             self._set_state(AppState.READY)
 
+    @staticmethod
+    def _prompt_value(item):
+        return item.get("prompt", "") if isinstance(item, dict) else item
+
+    def _display_prompt_media(self):
+        if self.current_photo:
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            image_path = os.path.join(project_root, self.current_photo["image"])
+            self.photo_label.set_photo(image_path)
+            credit = self.current_photo.get("credit", "Wikimedia Commons")
+            source = self.current_photo.get("source", "https://commons.wikimedia.org")
+            self.photo_credit_label.setText(
+                f'<a href="{source}" style="color:#ffffff;text-decoration:none;">'
+                f'{self._text("photo_credit")}: {credit}  ↗</a>'
+            )
+            self.photo_frame.setVisible(True)
+            self.prompt_text_label.setVisible(False)
+        else:
+            self.photo_frame.setVisible(False)
+            self.prompt_text_label.setVisible(True)
+
+    def _show_prep_time(self):
+        mins, secs = divmod(max(0, self.prep_remaining), 60)
+        self.timer_label.setText(f"{mins:02d}:{secs:02d}")
+
+    def _on_prep_tick(self):
+        self.prep_remaining -= 1
+        self._show_prep_time()
+        if self.prep_remaining <= 0:
+            self.prep_timer.stop()
+            self._start_recording_response()
+
     def _handle_back(self):
+        self.prep_timer.stop()
         if self.recorder.is_recording:
             self.recorder.stop_recording()
         self.player.stop()
@@ -786,6 +948,8 @@ class StudioScreen(QWidget):
             f"{self._text('words')}: {word_count}  |  {self._text('speed')}: {wpm} WPM  |  {self._text('duration')}: {duration:.1f}s  |  STT: {proc_time}s"
         )
 
+        self._update_accuracy_feedback(result.get("full_text", ""))
+
         # Populate Table
         self.table.setRowCount(0)
         for row_idx, w in enumerate(self.current_words_data):
@@ -823,6 +987,36 @@ class StudioScreen(QWidget):
 
         # Populate Karaoke Flow View
         self._render_karaoke_view(active_id=None)
+
+    def _update_accuracy_feedback(self, transcript):
+        exam_info = PROMPTS.get(self.current_exam, PROMPTS["free"])
+        task = exam_info["tasks"][self.current_task_idx]
+        if self.current_exam != "toefl" or task.get("type") != "Listen & Repeat":
+            self.accuracy_label.setVisible(False)
+            return
+
+        normalize = lambda text: re.findall(r"[a-z0-9']+", text.lower())
+        target_words = normalize(self.current_prompt)
+        spoken_words = normalize(transcript)
+        score = round(SequenceMatcher(None, target_words, spoken_words).ratio() * 100) if spoken_words else 0
+
+        if score >= 90:
+            result_key, background, color, border = "correct", "#eaf8f4", "#087f6b", "#a9decf"
+        elif score >= 75:
+            result_key, background, color, border = "mostly_correct", "#eef4fd", "#2457a6", "#bfd0ec"
+        elif score >= 50:
+            result_key, background, color, border = "partial", "#fff7e8", "#a35b00", "#f2d29a"
+        else:
+            result_key, background, color, border = "try_again", "#fff0f1", "#b4232e", "#efbbc0"
+
+        self.accuracy_label.setText(
+            f"{self._text('match')}: %{score}  ·  {self._text(result_key)}"
+        )
+        self.accuracy_label.setStyleSheet(
+            f"background:{background};color:{color};border:1px solid {border};"
+            "border-radius:8px;padding:9px;font-size:14px;font-weight:800;"
+        )
+        self.accuracy_label.setVisible(True)
 
     def _on_stt_error(self, err_msg: str):
         self.status_title.setText("● Transkripsiyon Hatası")
@@ -955,6 +1149,7 @@ class StudioScreen(QWidget):
         self.metrics_label.setText(
             f"{self._text('words')}: 0  |  {self._text('speed')}: 0 WPM  |  {self._text('duration')}: 0.0s"
         )
+        self.accuracy_label.setVisible(False)
 
     def _copy_text(self):
         if not self.current_words_data:
